@@ -281,6 +281,7 @@
 
     // Attaches useful event callbacks to an `audiojs` instance.
     attachEvents: function(wrapper, audio) {
+      if (!audio.settings.createPlayer) return;
       var player = audio.settings.createPlayer,
           playPause = getByClass(player.playPauseClass, wrapper),
           scrubber = getByClass(player.scrubberClass, wrapper),
@@ -365,6 +366,9 @@
         audio.element.ppause();
         audio.settings.pause.apply(audio);
       }
+      audio['setVolume'] = function(v) {
+        audio.element.setVolume(v);
+      }
       audio['loadStarted'] = function() {
         // Load the mp3 specified by the audio element into the swf.
         audio.swfReady = true;
@@ -419,24 +423,27 @@
       // **Dynamic CSS injection**  
       // Takes a string of css, inserts it into a `<style>`, then injects it in at the very top of the `<head>`. This ensures any user-defined styles will take precedence.
       injectCss: function(audio, string) {
-        var head = document.getElementsByTagName('head')[0],
-            firstchild = head.firstChild,
-            style = document.createElement('style'),
-            css = string.replace(/\$1/g, audio.settings.imageLocation);
 
-        if (!head) return;
         // If an `audiojs` `<style>` tag already exists, then append to it rather than creating a whole new `<style>`.
         var prepend = '',
-            styles = document.getElementsByTagName('style');
+            styles = document.getElementsByTagName('style'),
+            css = string.replace(/\$1/g, audio.settings.imageLocation);
 
         for (var i = 0, ii = styles.length; i < ii; i++) {
           var title = styles[i].getAttribute('title');
           if (title && ~title.indexOf('audiojs')) {
             style = styles[i];
+            if (style.innerHTML === css) return;
             prepend = style.innerHTML;
             break;
           }
         };
+
+        var head = document.getElementsByTagName('head')[0],
+            firstchild = head.firstChild,
+            style = document.createElement('style');
+
+        if (!head) return;
 
         style.setAttribute('type', 'text/css');
         style.setAttribute('title', 'audiojs');
@@ -536,27 +543,34 @@
       },
 
       // **DOMready function**  
-      // As seen here: <http://webreflection.blogspot.com/2007/09/whats-wrong-with-new-iecontentloaded.html>.
-      ready: (function(ie) {
-        var d = document;
-        return ie ? function(c){
-          var n = d.firstChild,
-              f = function(){
-                try{ c(n.doScroll('left')) }
-                catch(e){ setTimeout(f, 10) }
-              };
-              f()
-        } :
-        /webkit|safari|khtml/i.test(navigator.userAgent) ? function(c){
-          var f = function(){
-            /loaded|complete/.test(d.readyState) ? c() : setTimeout(f, 10)
-          };
-          f();
-        } :
-        function(c){
-          d.addEventListener('DOMContentLoaded', c, false);
+      // As seen here: <https://github.com/dperini/ContentLoaded/>.
+      ready: (function() { return function(fn) {
+        var win = window, done = false, top = true,
+        doc = win.document, root = doc.documentElement,
+        add = doc.addEventListener ? 'addEventListener' : 'attachEvent',
+        rem = doc.addEventListener ? 'removeEventListener' : 'detachEvent',
+        pre = doc.addEventListener ? '' : 'on',
+        init = function(e) {
+          if (e.type == 'readystatechange' && doc.readyState != 'complete') return;
+          (e.type == 'load' ? win : doc)[rem](pre + e.type, init, false);
+          if (!done && (done = true)) fn.call(win, e.type || e);
+        },
+        poll = function() {
+          try { root.doScroll('left'); } catch(e) { setTimeout(poll, 50); return; }
+          init('poll');
+        };
+        if (doc.readyState == 'complete') fn.call(win, 'lazy');
+        else {
+          if (doc.createEventObject && root.doScroll) {
+            try { top = !win.frameElement; } catch(e) { }
+            if (top) poll();
+          }
+          doc[add](pre + 'DOMContentLoaded', init, false);
+          doc[add](pre + 'readystatechange', init, false);
+          win[add](pre + 'load', init, false);
         }
-      })(/*@cc_on 1@*/)
+      }
+      })()
 
     }
   }
@@ -649,6 +663,9 @@
       this.playing = false;
       this.element.pause();
       this.settings.pause.apply(this);
+    },
+    setVolume: function(v) {
+      this.element.volume = v;
     },
     trackEnded: function(e) {
       this.skipTo.apply(this, [0]);
